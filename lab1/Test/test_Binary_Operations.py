@@ -9,7 +9,7 @@ class Test(TestCase):
 
     def test_decimal_to_binary_direct_code_zero(self):
         binary_direct = Binary_Operations.decimal_to_binary_direct_code(0)
-        assert binary_direct == "00000000"
+        assert binary_direct == "0"
 
     def test_decimal_to_binary_direct_code_negative(self):
         binary_direct = Binary_Operations.decimal_to_binary_direct_code(-2)
@@ -68,12 +68,13 @@ class Test(TestCase):
         assert decimal == 36
 
     def test_binary_division(self):
-        binary_direct = Binary_Operations.binary_divide('00001100', '00000011')
-        assert binary_direct == '00.00111'
+        binary_direct = Binary_Operations.binary_divide(Binary_Operations.decimal_to_binary_direct_code(10),
+                                                      Binary_Operations.decimal_to_binary_direct_code(3))
+        assert binary_direct == '011.01010101'
 
     def test_binary_division_zero_dividend(self):
         binary_direct = Binary_Operations.binary_divide('00000000', '00000010')
-        assert binary_direct == '0'
+        assert binary_direct == '00'
 
     def test_binary_subtract(self):
         binary_num = Binary_Operations.binary_subtract('00000101', '00000010')

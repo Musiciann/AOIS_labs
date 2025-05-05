@@ -817,18 +817,3 @@ class LogicalFunctionMinimization(LogicalFunction):
         else:
             return " | ".join(var_expr)
 
-if __name__ == '__main__':
-    lf = LogicalFunctionMinimization('!(!a>!b)|c')
-    lf.generate_truth_table()
-    print(lf.minimize_sdnf_quine())
-    print()
-    print(lf.minimize_sknf_quine())
-    print()
-    print(lf.minimize_sdnf_calculational())
-    print()
-    print(lf.minimize_sknf_calculational())
-    print()
-    print(lf.minimize_sdnf_karnaugh())
-    print()
-    print(lf.minimize_sknf_karnaugh())
-

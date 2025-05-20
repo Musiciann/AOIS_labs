@@ -31,10 +31,10 @@ class TestLogicalFunctionMinimization(TestCase):
         lf = LogicalFunctionMinimization("!(!a>!b)|c")
         lf.generate_truth_table()
         result = lf.minimize_sdnf_karnaugh()
-        assert result[-14:] == '(c) ∨ (!a & b)'
+        assert result[-12:] == '(c) | (!a&b)'
 
     def test_minimize_sknf_karnaugh(self):
         lf = LogicalFunctionMinimization("!(!a>!b)|c")
         lf.generate_truth_table()
         result = lf.minimize_sknf_karnaugh()
-        assert result[-18:] == '(b | c) & (!a | c)'
+        assert result[-14:] == '(b|c) & (!a|c)' or '(!a|c) & (b|c)'

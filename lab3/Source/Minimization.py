@@ -1,10 +1,12 @@
 from collections import defaultdict
 from LF import LogicalFunction
 import math
+import re
 
 VARIABLES = 'abcdefghijklmnopqrstuvwxyz'
 
 class LogicalFunctionMinimization(LogicalFunction):
+
     def combine_terms(self, term1, term2):
         if len(term1) != len(term2):
             return None
@@ -436,23 +438,24 @@ class LogicalFunctionMinimization(LogicalFunction):
         return operator.join(terms)
 
     def build_karnaugh_map(self):
-        num_vars = len(self.variables)
-        self.validate_variable_count(num_vars)
+        num_vars = self._validate_kmap_variables()
+        rows, cols = self._get_kmap_dimensions(num_vars)
 
-        rows, cols = self.determine_map_dimensions(num_vars)
-        kmap = self.create_empty_map(rows, cols)
-        row_gray, col_gray = self.generate_gray_codes(rows, cols)
+        row_gray = self._generate_gray_code_sequence(rows)
+        col_gray = self._generate_gray_code_sequence(cols) if cols > 1 else ['0']
 
-        self.fill_kmap_with_truth_table(kmap, row_gray, col_gray, num_vars)
-        self.fill_remaining_cells(kmap)
+        kmap = self._initialize_kmap(rows, cols)
+        self._fill_kmap_values(kmap, row_gray, col_gray, num_vars)
 
         return kmap, row_gray, col_gray
 
-    def validate_variable_count(self, num_vars):
+    def _validate_kmap_variables(self) -> int:
+        num_vars = len(self.variables)
         if num_vars > 6:
             raise ValueError("Karnaugh maps are only supported for up to 6 variables")
+        return num_vars
 
-    def determine_map_dimensions(self, num_vars):
+    def _get_kmap_dimensions(self, num_vars: int) -> tuple:
         dimensions = {
             1: (2, 1),
             2: (2, 2),
@@ -463,47 +466,62 @@ class LogicalFunctionMinimization(LogicalFunction):
         }
         return dimensions[num_vars]
 
-    def create_empty_map(self, rows, cols):
-        return [[None for _ in range(cols)] for _ in range(rows)]
+    def _generate_gray_code_sequence(self, length: int) -> list:
+        if length == 0:
+            return []
+        bits = int(math.log2(length))
+        return [bin(num ^ (num >> 1))[2:].zfill(bits) for num in range(length)]
 
-    def generate_gray_codes(self, rows, cols):
-        row_gray = self.gray_code(int(math.log2(rows)))
-        col_gray = self.gray_code(int(math.log2(cols))) if cols > 1 else ['0']
-        return row_gray, col_gray
+    def _initialize_kmap(self, rows: int, cols: int) -> list:
+        return [[0 for _ in range(cols)] for _ in range(rows)]
 
-    def fill_kmap_with_truth_table(self, kmap, row_gray, col_gray, num_vars):
-        for (values, result) in self.truth_table:
-            row_vars, col_vars = self.split_variables(values, num_vars)
-            self.set_kmap_value(kmap, row_gray, col_gray, row_vars, col_vars, result)
+    def _fill_kmap_values(self, kmap: list, row_gray: list, col_gray: list, num_vars: int):
+        for values, result in self.truth_table:
+            binary_str = ''.join(map(str, values))
 
-    def split_variables(self, values, num_vars):
-        split_rules = {
-            1: (slice(0, 1), slice(0, 0)),
-            2: (slice(0, 1), slice(1, 2)),
-            3: (slice(0, 1), slice(1, 3)),
-            4: (slice(0, 2), slice(2, 4)),
-            5: (slice(0, 2), slice(2, 5)),
-            6: (slice(0, 3), slice(3, 6))
-        }
-        row_slice, col_slice = split_rules[num_vars]
-        return values[row_slice], values[col_slice]
+            row_part = binary_str[:int(math.log2(len(row_gray)))]
+            col_part = binary_str[int(math.log2(len(row_gray))):] if num_vars > 1 else '0'
 
-    def set_kmap_value(self, kmap, row_gray, col_gray, row_vars, col_vars, result):
-        row_bits = ''.join(map(str, row_vars))
-        col_bits = ''.join(map(str, col_vars)) if col_vars else '0'
+            try:
+                row_idx = row_gray.index(row_part)
+                col_idx = col_gray.index(col_part) if num_vars > 1 else 0
+                kmap[row_idx][col_idx] = int(result)
+            except ValueError:
+                continue
 
-        try:
-            row_idx = row_gray.index(row_bits)
-            col_idx = col_gray.index(col_bits) if col_bits else 0
-            kmap[row_idx][col_idx] = int(result)
-        except ValueError:
-            pass
+    def minimize_sdnf_karnaugh(self):
+        kmap, row_gray, col_gray = self.build_karnaugh_map()
 
-    def fill_remaining_cells(self, kmap):
-        for i in range(len(kmap)):
-            for j in range(len(kmap[0])):
-                if kmap[i][j] is None:
-                    kmap[i][j] = 0
+        kmap_visualization = self.print_karnaugh_map(kmap, row_gray, col_gray, highlight_value=1)
+
+        input_terms = [i for i, (_, result) in enumerate(self.truth_table) if result]
+        optimized = self.optimize_kmap(input_terms, len(self.variables), self.variables, True)
+        optimized_expr = " | ".join(optimized) if optimized else "0"
+
+        result = [
+            "Карта Карно для СДНФ (выделены 1):",
+            kmap_visualization,
+            "\nМинимальная СДНФ:",
+            optimized_expr
+        ]
+        return "\n".join(result)
+
+    def minimize_sknf_karnaugh(self):
+        kmap, row_gray, col_gray = self.build_karnaugh_map()
+
+        kmap_visualization = self.print_karnaugh_map(kmap, row_gray, col_gray, highlight_value=0)
+
+        input_terms = [i for i, (_, result) in enumerate(self.truth_table) if not result]
+        optimized = self.optimize_kmap(input_terms, len(self.variables), self.variables, False)
+        optimized_expr = " & ".join(optimized) if optimized else "1"
+
+        result = [
+            "Карта Карно для СКНФ (выделены 0):",
+            kmap_visualization,
+            "\nМинимальная СКНФ:",
+            optimized_expr
+        ]
+        return "\n".join(result)
 
     def print_karnaugh_map(self, kmap, row_gray, col_gray, highlight_value=None):
         header = " " * len(row_gray[0]) + " | " + " | ".join(col_gray)
@@ -519,301 +537,200 @@ class LogicalFunctionMinimization(LogicalFunction):
 
         return "\n".join([header, separator] + rows)
 
-    def minimize_sdnf_karnaugh(self):
-        kmap, row_gray, col_gray = self.build_karnaugh_map()
-        karnaugh_map_str = self.print_karnaugh_map(kmap, row_gray, col_gray, highlight_value=1)
+    def generate_gray_sequence(self, length: int) -> list:
+        if not isinstance(length, int) or length <= 0:
+            raise ValueError("Length must be a positive integer")
+        return [num ^ (num >> 1) for num in range(1 << length)]
 
-        rectangles = self.find_optimal_rectangles(kmap, target=1)
-        terms = [self.rectangle_to_expression(rect, row_gray, col_gray, is_sdnf=True)
-                 for rect in rectangles]
+    def _convert_to_binary_terms(self, input_terms: list, variable_count: int) -> list:
+        if not isinstance(input_terms, list):
+            raise TypeError("Input terms must be a list")
+        if not isinstance(variable_count, int) or variable_count <= 0:
+            raise ValueError("Variable count must be a positive integer")
+        if any(not isinstance(term, int) or term < 0 for term in input_terms):
+            raise ValueError("All terms must be non-negative integers")
 
-        result = [
-            "Карта Карно (выделены 1 для СДНФ):",
-            karnaugh_map_str,
-            "\nВыбранные прямоугольники:",
-            "\n".join([f"Прямоугольник {i + 1}: строка {rect[0]}, колонка {rect[1]}, высота {rect[2]}, ширина {rect[3]}"
-                       for i, rect in enumerate(rectangles)]),
-            "\nМинимальная СДНФ:",
-            " ∨ ".join([f"({term})" for term in terms]) if terms else "0"
-        ]
-        return "\n".join(result)
+        max_term = max(input_terms, default=0)
+        if max_term >= (1 << variable_count):
+            raise ValueError(f"Term {max_term} exceeds maximum value for {variable_count} variables")
 
-    def minimize_sknf_karnaugh(self):
-        kmap, row_gray, col_gray = self.build_karnaugh_map()
-        karnaugh_map_str = self.print_karnaugh_map(kmap, row_gray, col_gray, highlight_value=0)
+        return [tuple((term >> i) & 1 for i in reversed(range(variable_count))) for term in input_terms]
 
-        rectangles = self.find_optimal_rectangles(kmap, target=0)
-        terms = [self.rectangle_to_expression(rect, row_gray, col_gray, is_sdnf=False)
-                 for rect in rectangles]
+    def _combine_terms_pair(self, term_a: tuple, term_b: tuple) -> tuple:
+        mismatch_count = 0
+        combined = []
+        for bit_a, bit_b in zip(term_a, term_b):
+            combined.append(bit_a if bit_a == bit_b else '-')
+            mismatch_count += (bit_a != bit_b)
+        return tuple(combined) if mismatch_count == 1 else None
 
-        result = [
-            "Карта Карно (выделены 0 для СКНФ):",
-            karnaugh_map_str,
-            "\nВыбранные прямоугольники:",
-            "\n".join([f"Прямоугольник {i + 1}: строка {rect[0]}, колонка {rect[1]}, высота {rect[2]}, ширина {rect[3]}"
-                       for i, rect in enumerate(rectangles)]),
-            "\nМинимальная СКНФ:",
-            " & ".join([f"({term})" for term in terms]) if terms else "1"
-        ]
-        return "\n".join(result)
+    def _identify_prime_implicants(self, binary_terms: list, var_count: int) -> set:
+        self._validate_binary_terms_input(binary_terms, var_count)
 
-    def gray_code(self, n):
-        if n == 0:
-            return ['']
-        first_half = self.gray_code(n - 1)
-        second_half = first_half.copy()
-        second_half.reverse()
+        grouped_terms = self._group_terms_by_bit_count(binary_terms, var_count)
+        prime_set = set()
+        unchecked_terms = set(binary_terms)
 
-        return ['0' + code for code in first_half] + ['1' + code for code in second_half]
+        while grouped_terms:
+            next_group, processed = self._process_term_groups(grouped_terms)
+            prime_set.update(unchecked_terms - processed)
+            unchecked_terms = self._flatten_next_group(next_group)
+            grouped_terms = self._filter_non_empty_groups(next_group)
 
-    def find_optimal_rectangles(self, kmap, target=1):
-        rows = len(kmap)
-        cols = len(kmap[0]) if rows > 0 else 0
-        visited = [[False for _ in range(cols)] for _ in range(rows)]
-        rectangles = []
+        return prime_set
 
-        all_rectangles = []
-        for i in range(rows):
-            for j in range(cols):
-                if kmap[i][j] == target:
-                    rects = self.find_all_rectangles_at(kmap, i, j, target)
-                    all_rectangles.extend(rects)
+    def _validate_binary_terms_input(self, binary_terms: list, var_count: int) -> None:
+        if not isinstance(binary_terms, list):
+            raise TypeError("Binary terms must be a list")
+        if not binary_terms:
+            raise ValueError("Binary terms list cannot be empty")
+        if not isinstance(var_count, int) or var_count <= 0:
+            raise ValueError("Variable count must be a positive integer")
 
-        unique_rectangles = []
-        seen = set()
-        for rect in all_rectangles:
-            rect_key = (rect[0], rect[1], rect[2], rect[3])
-            if rect_key not in seen:
-                seen.add(rect_key)
-                unique_rectangles.append(rect)
+    def _group_terms_by_bit_count(self, binary_terms: list, var_count: int) -> dict:
+        grouped_terms = {}
+        for term in binary_terms:
+            if not isinstance(term, tuple) or len(term) != var_count:
+                raise ValueError(f"Term {term} has invalid format or length")
+            key = term.count(1)
+            grouped_terms.setdefault(key, []).append(term)
+        return grouped_terms
 
-        unique_rectangles.sort(key=lambda r: r[2]*r[3], reverse=True)
+    def _process_term_groups(self, grouped_terms: dict) -> tuple:
+        next_group = {}
+        processed = set()
 
-        return self.select_minimal_cover(unique_rectangles, kmap, target)
+        for key in sorted(grouped_terms):
+            for t1 in grouped_terms[key]:
+                for t2 in grouped_terms.get(key + 1, []):
+                    merged = self._combine_terms_pair(t1, t2)
+                    if merged:
+                        processed.update({t1, t2})
+                        next_group.setdefault(merged.count(1), []).append(merged)
 
-    def find_all_rectangles_at(self, kmap, i, j, target):
+        return next_group, processed
 
-        rows = len(kmap)
-        cols = len(kmap[0])
-        rectangles = []
+    def _flatten_next_group(self, next_group: dict) -> set:
+        return set(sum(next_group.values(), []))
 
-        max_height = min(2**int(math.log2(rows)), rows)
-        max_width = min(2**int(math.log2(cols)), cols)
+    def _filter_non_empty_groups(self, grouped_terms: dict) -> dict:
+        return {k: v for k, v in grouped_terms.items() if v}
 
-        for height in [2**p for p in range(int(math.log2(max_height)) + 1)]:
-            for width in [2**p for p in range(int(math.log2(max_width)) + 1)]:
-                valid = True
-                for h in range(height):
-                    for w in range(width):
-                        row = (i + h) % rows
-                        col = (j + w) % cols
-                        if kmap[row][col] != target:
-                            valid = False
-                            break
-                    if not valid:
-                        break
-                if valid:
-                    rectangles.append((i, j, height, width))
+    def _is_implicant_covering(self, implicant: tuple, minterm: tuple) -> bool:
+        if not isinstance(implicant, tuple) or not isinstance(minterm, tuple):
+            raise TypeError("Both arguments must be tuples")
+        if len(implicant) != len(minterm):
+            raise ValueError("Implicant and minterm not equal")
 
-        return rectangles
+        return all(imp_bit == '-' or imp_bit == mt_bit for imp_bit, mt_bit in zip(implicant, minterm))
 
-    def select_minimal_cover(self, rectangles, kmap, target):
-        target_cells = self.get_target_cells(kmap, target)
-        if not target_cells:
-            return []
+    def _select_essential_implicants(self, prime_set: set, minterms: list) -> set:
+        self._validate_prime_implicants_input(prime_set, minterms)
 
-        coverage = self.build_cell_coverage(rectangles, kmap, target_cells)
-        essential = self.find_essential_rectangles(coverage)
-        selected, covered = self.apply_essential_rectangles(essential, kmap, target_cells)
+        coverage_table = self._build_coverage_table(prime_set, minterms)
+        essential = self._find_initially_essential(prime_set, minterms, coverage_table)
+        covered = self._get_covered_minterms(essential, coverage_table)
 
-        remaining = [r for r in rectangles if r not in selected]
-        remaining.sort(key=lambda r: r[2] * r[3], reverse=True)
+        remaining = set(minterms) - covered
+        essential.update(self._select_remaining_implicants(coverage_table, remaining))
 
-        selected = self.select_remaining_rectangles(remaining, selected, covered, kmap, target_cells)
-        return selected
-
-    def get_target_cells(self, kmap, target):
-        rows = len(kmap)
-        cols = len(kmap[0]) if rows > 0 else 0
-        return {(i, j) for i in range(rows) for j in range(cols)
-                if kmap[i][j] == target}
-
-    def build_cell_coverage(self, rectangles, kmap, target_cells):
-        coverage = defaultdict(list)
-        for rect in rectangles:
-            covered_cells = self.get_covered_cells(rect, kmap, target_cells)
-            for cell in covered_cells:
-                coverage[cell].append(rect)
-        return coverage
-
-    def get_covered_cells(self, rect, kmap, target_cells):
-        i, j, height, width = rect
-        rows = len(kmap)
-        cols = len(kmap[0]) if rows > 0 else 0
-        covered = set()
-
-        for h in range(height):
-            for w in range(width):
-                row = (i + h) % rows
-                col = (j + w) % cols
-                if (row, col) in target_cells:
-                    covered.add((row, col))
-        return covered
-
-    def find_essential_rectangles(self, coverage):
-        essential = set()
-        for cell, rects in coverage.items():
-            if len(rects) == 1:
-                essential.add(rects[0])
         return essential
 
-    def apply_essential_rectangles(self, essential, kmap, target_cells):
-        selected = list(essential)
+    def _validate_prime_implicants_input(self, prime_set: set, minterms: list) -> None:
+        if not isinstance(prime_set, set):
+            raise TypeError("Prime set must be a set")
+        if not isinstance(minterms, list):
+            raise TypeError("Minterms must be a list")
+        if not minterms:
+            raise ValueError("Minterms list cannot be empty")
+
+    def _build_coverage_table(self, prime_set: set, minterms: list) -> dict:
+        return {
+            imp: [mt for mt in minterms if self._is_implicant_covering(imp, mt)]
+            for imp in prime_set
+        }
+
+    def _find_initially_essential(self, prime_set: set, minterms: list, coverage_table: dict) -> set:
+        essential = set()
+
+        for mt in minterms:
+            covering = [imp for imp in prime_set if self._is_implicant_covering(imp, mt)]
+            if not covering:
+                raise ValueError(f"Minterm {mt} is not covered by any prime implicant")
+            if len(covering) == 1:
+                essential.add(covering[0])
+
+        return essential
+
+    def _get_covered_minterms(self, essential_implicants: set, coverage_table: dict) -> set:
         covered = set()
+        for imp in essential_implicants:
+            covered.update(coverage_table[imp])
+        return covered
 
-        for rect in selected:
-            covered.update(self.get_covered_cells(rect, kmap, target_cells))
+    def _select_remaining_implicants(self, coverage_table: dict, remaining_minterms: set) -> set:
+        selected = set()
 
-        return selected, covered
+        while remaining_minterms:
+            best_imp, best_covered = max(
+                coverage_table.items(),
+                key=lambda item: len(set(item[1]) & remaining_minterms)
+            )
 
-    def select_remaining_rectangles(self, remaining, selected, covered, kmap, target_cells):
-        while len(covered) < len(target_cells):
-            best_rect, best_new = None, 0
-
-            for rect in remaining:
-                new_cover = self.calculate_new_coverage(rect, covered, kmap, target_cells)
-                if new_cover > best_new:
-                    best_new = new_cover
-                    best_rect = rect
-
-            if not best_rect:
-                break
-
-            selected.append(best_rect)
-            remaining.remove(best_rect)
-            covered.update(self.get_covered_cells(best_rect, kmap, target_cells))
+            selected.add(best_imp)
+            remaining_minterms -= set(best_covered)
 
         return selected
 
-    def calculate_new_coverage(self, rect, covered, kmap, target_cells):
-        new_cover = 0
-        for cell in self.get_covered_cells(rect, kmap, target_cells):
-            if cell not in covered:
-                new_cover += 1
-        return new_cover
+    def optimize_kmap(self, input_terms: list, var_count: int, var_names: list, use_conjunctive: bool = True) -> list:
+        self._validate_inputs(input_terms, var_count, var_names)
 
-    def find_largest_power2_rectangle(self, kmap, start_row, start_col, target):
-        rows = len(kmap)
-        cols = len(kmap[0])
-        max_rect = None
-        max_area = 0
-        for height_pow in range(int(math.log2(rows)) + 1):
-            height = 2 ** height_pow
-            if height > rows:
+        binary_terms = self._convert_to_binary_terms(input_terms, var_count)
+        primes = self._identify_prime_implicants(binary_terms, var_count)
+        essentials = self._select_essential_implicants(primes, binary_terms)
+
+        return self._build_output_expression(list(essentials), var_names, use_conjunctive)
+
+    def _validate_inputs(self, input_terms: list, var_count: int, var_names: list) -> None:
+        if not isinstance(input_terms, list):
+            raise TypeError("Input terms must be a list")
+        if not isinstance(var_count, int) or var_count <= 0:
+            raise ValueError("Variable count must be a positive integer")
+        if not isinstance(var_names, list) or len(var_names) != var_count:
+            raise ValueError("Variable names must be a list matching variable count")
+        if any(not isinstance(name, str) for name in var_names):
+            raise ValueError("All variable names must be strings")
+
+    def _build_output_expression(self, implicants: list, var_names: list, use_conjunctive: bool) -> list:
+        operator = '&' if use_conjunctive else '|'
+        result = []
+
+        for imp in implicants:
+            components = self._build_implicant_components(imp, var_names, use_conjunctive)
+            if components:  # Only add if not empty
+                result.append(f"({operator.join(components)})")
+
+        return result
+
+    def _build_implicant_components(self, implicant: str, var_names: list, use_conjunctive: bool) -> list:
+        components = []
+
+        for var, bit in zip(var_names, implicant):
+            if bit == '-':
                 continue
-            for width_pow in range(int(math.log2(cols)) + 1):
-                width = 2 ** width_pow
-                if width > cols:
-                    continue
 
-                valid = True
-                for h in range(height):
-                    for w in range(width):
-                        row = (start_row + h) % rows
-                        col = (start_col + w) % cols
-                        if kmap[row][col] != target:
-                            valid = False
-                            break
-                    if not valid:
-                        break
-                if valid and height * width > max_area:
-                    max_area = height * width
-                    max_rect = (start_row, start_col, height, width)
+            if use_conjunctive:
+                component = var if bit else f"!{var}"
+            else:
+                component = f"!{var}" if bit else var
 
-        return max_rect
+            components.append(component)
 
-    def mark_rectangle_visited(self, visited, rectangle):
-        i, j, height, width = rectangle
-        rows = len(visited)
-        cols = len(visited[0])
+        return components
 
-        for h in range(height):
-            for w in range(width):
-                visited[(i + h) % rows][(j + w) % cols] = True
+    def validate_variable_count(self, num_vars):
+        if num_vars > 6:
+            raise ValueError("Karnaugh maps are only supported for up to 6 variables")
 
 
-    def rectangle_to_expression(self, rectangle, row_gray, col_gray, is_sdnf=True):
-        i, j, height, width = rectangle
-        rows = len(row_gray)
-        cols = len(col_gray) if row_gray else 0
-
-        row_expr = self.process_row_variables(i, height, rows, row_gray, is_sdnf)
-        col_expr = self.process_col_variables(j, width, cols, col_gray, row_gray, is_sdnf)
-
-        var_expr = row_expr + col_expr
-
-        return self.format_expression(var_expr, is_sdnf)
-
-
-    def process_row_variables(self, start_row, height, total_rows, row_gray, is_sdnf):
-        if total_rows <= 1:
-            return []
-
-        common_bits = self.find_common_bits(
-            start_row, height, total_rows,
-            row_gray, len(row_gray[0])
-        )
-
-        return [
-            self.bit_to_variable(bit_idx, bit, is_sdnf, bit_idx)
-            for bit_idx, bit in common_bits
-        ]
-
-
-    def process_col_variables(self, start_col, width, total_cols, col_gray, row_gray, is_sdnf):
-        if total_cols <= 1:
-            return []
-
-        common_bits = self.find_common_bits(
-            start_col, width, total_cols,
-            col_gray, len(col_gray[0])
-        )
-
-        return [
-            self.bit_to_variable(
-                bit_idx, bit, is_sdnf,
-                len(row_gray[0]) + bit_idx if row_gray else bit_idx
-            )
-            for bit_idx, bit in common_bits
-        ]
-
-    def find_common_bits(self, start, size, total, gray_code, bits_count):
-        common_bits = []
-        for bit_idx in range(bits_count):
-            first_bit = gray_code[start][bit_idx]
-            same_bit = all(
-                gray_code[(start + offset) % total][bit_idx] == first_bit
-                for offset in range(size)
-            )
-            if same_bit:
-                common_bits.append((bit_idx, first_bit))
-        return common_bits
-
-
-    def bit_to_variable(self, bit_idx, bit, is_sdnf, var_idx):
-        var = self.variables[var_idx]
-        if is_sdnf:
-            return var if bit == '1' else f"!{var}"
-        else:
-            return var if bit == '0' else f"!{var}"
-
-
-    def format_expression(self, var_expr, is_sdnf):
-        if not var_expr:
-            return "1" if is_sdnf else "0"
-
-        if is_sdnf:
-            return " & ".join(var_expr)
-        else:
-            return " | ".join(var_expr)
 

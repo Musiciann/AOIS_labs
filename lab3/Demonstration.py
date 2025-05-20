@@ -1,5 +1,9 @@
 from Minimization import LogicalFunctionMinimization
 
+#(a>b)&!c|(d~e)
+#(a&b)|!c
+#!(!a>!b)|c
+
 if __name__ == '__main__':
 
     formula = input("Enter a logical formula >>> ")
